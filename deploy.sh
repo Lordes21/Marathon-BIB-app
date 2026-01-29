@@ -19,7 +19,7 @@ if pg_isready -q 2>/dev/null; then
     echo "  PostgreSQL already running."
 else
     sudo service postgresql start
-    sleep 2
+    for i in 1 2 3 4 5; do pg_isready -q && break; sleep 0.5; done
     if pg_isready -q; then
         echo "  PostgreSQL started."
     else
@@ -88,7 +88,7 @@ server.serve_forever()
 " &
 S3_PID=$!
 echo "  S3 mock server PID: $S3_PID"
-sleep 3
+for i in 1 2 3 4 5; do curl -s -o /dev/null http://localhost:$S3_PORT/ && break; sleep 0.5; done
 
 # --- 3. Start Flask App with Gunicorn ---
 echo "[3/4] Starting Flask application with Gunicorn..."
@@ -102,15 +102,13 @@ fi
 
 cd "$PROJECT_DIR"
 gunicorn --bind 0.0.0.0:5000 \
-    --workers 2 \
+    --workers 1 \
     --timeout 120 \
     --access-logfile - \
     --error-logfile - \
     --daemon \
     --pid /tmp/marathon_gunicorn.pid \
     app:app
-
-sleep 2
 
 # --- 4. Verify ---
 echo "[4/4] Verifying deployment..."
@@ -121,7 +119,7 @@ for i in 1 2 3 4 5; do
         FLASK_OK=true
         break
     fi
-    sleep 1
+    sleep 0.5
 done
 
 echo ""

@@ -11,7 +11,8 @@ if [ -f .env ]; then
     set +a
 fi
 
-echo "=== Marathon BIB App - Local Deployment ==="
+DOMAIN="run-lens.com"
+echo "=== Marathon BIB App - Production Deployment ==="
 
 # --- 1. PostgreSQL ---
 echo "[1/4] Starting PostgreSQL..."
@@ -146,10 +147,47 @@ else
 fi
 
 echo "========================================="
+
+# --- 5. Nginx reverse proxy ---
 echo ""
-echo "Access the app at: http://localhost:5000"
+echo "[5/5] Configuring Nginx for $DOMAIN..."
+if ! command -v nginx &>/dev/null; then
+    echo "  Installing nginx..."
+    sudo apt-get install -y -qq nginx 2>&1 | tail -2
+fi
+
+sudo cp "$PROJECT_DIR/nginx/run-lens" /etc/nginx/sites-available/run-lens
+sudo ln -sf /etc/nginx/sites-available/run-lens /etc/nginx/sites-enabled/run-lens
+sudo rm -f /etc/nginx/sites-enabled/default
+
+if sudo nginx -t 2>&1 | grep -q "successful"; then
+    sudo systemctl restart nginx
+    echo "  [OK] Nginx configured for $DOMAIN"
+else
+    echo "  [FAIL] Nginx config test failed"
+    sudo nginx -t
+fi
+
+# --- 6. SSL with Let's Encrypt ---
+if command -v certbot &>/dev/null; then
+    if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+        echo ""
+        echo "  Setting up SSL certificate..."
+        sudo certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || \
+            echo "  [WARN] Certbot failed. Run manually: sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN"
+    else
+        echo "  [OK] SSL certificate already exists"
+    fi
+else
+    echo "  [WARN] certbot not found. Install with: sudo apt install certbot python3-certbot-nginx"
+    echo "         Then run: sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN"
+fi
+
+echo ""
+echo "========================================="
+echo "  Access: http://$DOMAIN"
+echo "========================================="
 echo ""
 echo "To stop: bash stop.sh"
-echo "Logs: gunicorn logs are printed to stdout"
 echo "PID file: /tmp/marathon_gunicorn.pid"
 echo "S3 PID: $S3_PID"

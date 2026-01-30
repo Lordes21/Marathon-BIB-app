@@ -136,7 +136,7 @@ def hash_code(email: str, code: str) -> str:
     return hashlib.sha256(salt + code.encode("utf-8")).hexdigest()
 
 
-def lookup_bib_for_email(email: str) -> str:
+def lookup_bib_for_email(email: str, event_id: int | None = None) -> str:
     """
     Postgres source of truth:
       marathon.registrations(event_id, email, bib)
@@ -144,6 +144,7 @@ def lookup_bib_for_email(email: str) -> str:
     email = normalize_email(email)
     if not email:
         return ""
+    eid = event_id if event_id else EVENT_ID
 
     with pg() as conn:
         with conn.cursor() as cur:
@@ -154,14 +155,14 @@ def lookup_bib_for_email(email: str) -> str:
                 WHERE event_id = %s AND lower(email) = %s
                 LIMIT 1
                 """,
-                (EVENT_ID, email),
+                (eid, email),
             )
             row = cur.fetchone()
 
     return normalize_bib(row["bib"]) if row else ""
 
 
-def get_photo_keys_for_bib(bib_number: str):
+def get_photo_keys_for_bib(bib_number: str, event_id: int | None = None):
     """
     Postgres source of truth:
       marathon.matches(event_id, bib, photo_id)
@@ -171,21 +172,21 @@ def get_photo_keys_for_bib(bib_number: str):
     bib_number = normalize_bib(bib_number)
     if not bib_number:
         return []
+    eid = event_id if event_id else EVENT_ID
 
     with pg() as conn:
         with conn.cursor() as cur:
             cur.execute(
-             f"""
-              SELECT p.file_path
-              FROM {PG_SCHEMA}.matches m
-              JOIN {PG_SCHEMA}.photos p ON p.id = m.photo_id
-              WHERE m.event_id = %s AND m.bib = %s
-              GROUP BY p.file_path
-              ORDER BY MIN(p.id)
+                f"""
+                SELECT p.file_path
+                FROM {PG_SCHEMA}.matches m
+                JOIN {PG_SCHEMA}.photos p ON p.id = m.photo_id
+                WHERE m.event_id = %s AND m.bib = %s
+                GROUP BY p.file_path
+                ORDER BY MIN(p.id)
                 """,
-    (EVENT_ID, bib_number),
-)
-
+                (eid, bib_number),
+            )
             rows = cur.fetchall()
 
     return [r["file_path"] for r in rows]
@@ -217,8 +218,9 @@ def build_zip_bytes_from_s3(keys, zip_basename: str):
     return mem, f"{zip_basename}.zip"
 
 
-def make_download_token(email: str, bib: str) -> str:
-    payload = {"event_id": EVENT_ID, "email": normalize_email(email), "bib": normalize_bib(bib)}
+def make_download_token(email: str, bib: str, event_id: int | None = None) -> str:
+    eid = event_id if event_id else EVENT_ID
+    payload = {"event_id": eid, "email": normalize_email(email), "bib": normalize_bib(bib)}
     return serializer.dumps(payload)
 
 
@@ -250,11 +252,39 @@ def log_email(event_id: int, email: str, bib: str, photo_count: int, status: str
 
 
 # =========================
+# Helpers – events
+# =========================
+def get_events():
+    """Fetch all events from the database."""
+    try:
+        with pg() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT id, name, event_date FROM {PG_SCHEMA}.events ORDER BY event_date DESC, id DESC"
+                )
+                return cur.fetchall()
+    except Exception:
+        return []
+
+
+def resolve_event_id(form_event_id):
+    """Return a valid integer event_id from the form, falling back to EVENT_ID."""
+    try:
+        eid = int(form_event_id)
+        if eid > 0:
+            return eid
+    except (TypeError, ValueError):
+        pass
+    return EVENT_ID
+
+
+# =========================
 # Routes
 # =========================
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", smtp_ok=smtp_configured())
+    events = get_events()
+    return render_template("index.html", smtp_ok=smtp_configured(), events=events)
 
 
 @app.route("/request_code", methods=["POST"])
@@ -262,8 +292,18 @@ def request_code():
     init_db()
 
     email = normalize_email(request.form.get("email", ""))
+    event_id = resolve_event_id(request.form.get("event_id"))
+    events = get_events()
+
     if not is_valid_email(email):
-        return render_template("index.html", smtp_ok=smtp_configured(), error="Please enter a valid email.")
+        return render_template(
+            "index.html",
+            smtp_ok=smtp_configured(),
+            events=events,
+            selected_event=event_id,
+            email_value=email,
+            error="Please enter a valid email.",
+        )
 
     now = int(time.time())
 
@@ -277,6 +317,7 @@ def request_code():
         return render_template(
             "verify.html",
             email=email,
+            event_id=event_id,
             smtp_ok=smtp_configured(),
             info="A code was recently sent. Please wait a moment and try again.",
         )
@@ -306,6 +347,7 @@ def request_code():
         return render_template(
             "verify.html",
             email=email,
+            event_id=event_id,
             smtp_ok=False,
             error="Email sending is not configured on the server. Configure SMTP first.",
         )
@@ -313,7 +355,7 @@ def request_code():
     try:
         send_email(
             to_email=email,
-            subject="Your verification code",
+            subject="Your Run Lens verification code",
             text=(
                 f"Your verification code is: {code}\n\n"
                 f"It expires in {OTP_TTL_SECONDS // 60} minutes.\n"
@@ -321,11 +363,14 @@ def request_code():
             ),
         )
     except Exception as e:
-        return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error=f"Email error: {e}")
+        return render_template(
+            "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(), error=f"Email error: {e}"
+        )
 
     return render_template(
         "verify.html",
         email=email,
+        event_id=event_id,
         smtp_ok=smtp_configured(),
         info="We sent a verification code to your email. Enter it below.",
     )
@@ -337,9 +382,12 @@ def verify_and_send():
 
     email = normalize_email(request.form.get("email", ""))
     code = (request.form.get("code", "") or "").strip()
+    event_id = resolve_event_id(request.form.get("event_id"))
 
     if not is_valid_email(email) or not re.match(r"^\d{6}$", code):
-        return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error="Invalid code format.")
+        return render_template(
+            "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(), error="Invalid code format."
+        )
 
     now = int(time.time())
 
@@ -349,18 +397,27 @@ def verify_and_send():
             row = cur.fetchone()
 
             if not row:
-                return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error="Please request a new code.")
+                return render_template(
+                    "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(),
+                    error="Please request a new code.",
+                )
 
             if now > int(row["expires_at"]):
                 cur.execute(f"DELETE FROM {PG_SCHEMA}.otp_requests WHERE email = %s", (email,))
                 conn.commit()
-                return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error="Code expired. Request a new one.")
+                return render_template(
+                    "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(),
+                    error="Code expired. Request a new one.",
+                )
 
             attempts_left = int(row["attempts_left"])
             if attempts_left <= 0:
                 cur.execute(f"DELETE FROM {PG_SCHEMA}.otp_requests WHERE email = %s", (email,))
                 conn.commit()
-                return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error="Too many attempts. Request a new code.")
+                return render_template(
+                    "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(),
+                    error="Too many attempts. Request a new code.",
+                )
 
             expected = row["code_hash"]
             if hash_code(email, code) != expected:
@@ -370,14 +427,17 @@ def verify_and_send():
                     (attempts_left, email),
                 )
                 conn.commit()
-                return render_template("verify.html", email=email, smtp_ok=smtp_configured(), error=f"Incorrect code. Attempts left: {attempts_left}.")
+                return render_template(
+                    "verify.html", email=email, event_id=event_id, smtp_ok=smtp_configured(),
+                    error=f"Incorrect code. Attempts left: {attempts_left}.",
+                )
 
             # Verified: consume OTP
             cur.execute(f"DELETE FROM {PG_SCHEMA}.otp_requests WHERE email = %s", (email,))
         conn.commit()
 
-    # Now deliver using DB
-    bib = lookup_bib_for_email(email)
+    # Now deliver using DB (use selected event_id)
+    bib = lookup_bib_for_email(email, event_id)
     if not bib:
         return render_template(
             "done.html",
@@ -385,7 +445,7 @@ def verify_and_send():
             message="Verification successful. If photos are available for your registration, you will receive an email shortly.",
         )
 
-    keys = get_photo_keys_for_bib(bib)
+    keys = get_photo_keys_for_bib(bib, event_id)
     if not keys:
         return render_template(
             "done.html",
@@ -394,22 +454,22 @@ def verify_and_send():
         )
 
     # Signed download link
-    token = make_download_token(email=email, bib=bib)
+    token = make_download_token(email=email, bib=bib, event_id=event_id)
     download_url = request.url_root.rstrip("/") + f"/download/{token}"
 
     try:
         send_email(
             to_email=email,
-            subject="Your marathon photos are ready",
+            subject="Your race photos are ready",
             text=(
                 "Your photos are ready.\n\n"
                 f"Download your ZIP here (link expires in 24 hours):\n{download_url}\n\n"
                 "If you did not request this email, ignore it."
             ),
         )
-        log_email(EVENT_ID, email, bib, photo_count=len(keys), status="sent", error=None)
+        log_email(event_id, email, bib, photo_count=len(keys), status="sent", error=None)
     except Exception as e:
-        log_email(EVENT_ID, email, bib, photo_count=len(keys), status="failed", error=str(e))
+        log_email(event_id, email, bib, photo_count=len(keys), status="failed", error=str(e))
         return render_template("done.html", smtp_ok=smtp_configured(), message=f"Email error: {e}")
 
     return render_template("done.html", smtp_ok=smtp_configured(), message="Success. We sent your download link to your email.")
@@ -424,7 +484,7 @@ def download(token: str):
         return "Invalid download link.", 403
 
     event_id = int(payload.get("event_id", 0))
-    if event_id != EVENT_ID:
+    if event_id <= 0:
         return "Invalid link.", 403
 
     email = normalize_email(payload.get("email", ""))
@@ -433,10 +493,10 @@ def download(token: str):
         return "Invalid link.", 403
 
     # Ensure mapping still matches (DB)
-    if lookup_bib_for_email(email) != bib:
+    if lookup_bib_for_email(email, event_id) != bib:
         return "This link is no longer valid.", 403
 
-    keys = get_photo_keys_for_bib(bib)
+    keys = get_photo_keys_for_bib(bib, event_id)
     if not keys:
         return "No photos found.", 404
 
@@ -446,8 +506,8 @@ def download(token: str):
 
 if __name__ == "__main__":
     init_db()
-    print("[INFO] Starting app")
-    print(f"[INFO] EVENT_ID: {EVENT_ID}")
+    print("[INFO] Starting Run Lens app")
+    print(f"[INFO] Default EVENT_ID: {EVENT_ID}")
     print(f"[INFO] Postgres: {PG_HOST}:{PG_PORT}/{PG_DB} schema={PG_SCHEMA}")
     print(f"[INFO] MinIO/S3: {S3_ENDPOINT} bucket={S3_BUCKET}")
     print(f"[INFO] SMTP configured: {smtp_configured()}")

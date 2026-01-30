@@ -3,72 +3,63 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Verify • Berat Marathon 2026</title>
+  <title>Verify &middot; Run Lens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header class="header">
-    <div class="container header__inner">
-      <div class="brand">
-        <div class="brand__badge">BM</div>
-        <div class="brand__text">
-          <div class="brand__title">Berat Marathon 2026</div>
-          <div class="brand__subtitle">Verification</div>
-        </div>
-      </div>
+  <div class="page">
+    <div class="page__inner">
+
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Run Lens" class="logo" />
+
+      <div class="step-label">Verification</div>
+
+      <p class="email-display">{{ email }}</p>
+
+      {% if info %}
+        <div class="msg msg--info">{{ info }}</div>
+      {% endif %}
+
+      {% if error %}
+        <div class="msg msg--error">{{ error }}</div>
+      {% endif %}
+
+      <form class="form-card" method="POST" action="/verify_and_send">
+        <input type="hidden" name="email" value="{{ email }}">
+        <input type="hidden" name="event_id" value="{{ event_id }}">
+
+        <input
+          name="code"
+          class="input input--center"
+          type="text"
+          inputmode="numeric"
+          pattern="\d{6}"
+          minlength="6"
+          maxlength="6"
+          required
+          placeholder="000000"
+          autofocus
+        />
+
+        <button class="btn" type="submit">Verify &amp; send photos</button>
+      </form>
+
+      <form method="POST" action="/request_code" style="width:100%;">
+        <input type="hidden" name="email" value="{{ email }}">
+        <input type="hidden" name="event_id" value="{{ event_id }}">
+        <button class="btn btn--ghost" type="submit">Resend code</button>
+      </form>
+
+      {% if not smtp_ok %}
+        <div class="msg msg--error">Email delivery is not configured on this server.</div>
+      {% endif %}
+
+      <a href="/" class="back-link">&larr; Start over</a>
+
     </div>
-  </header>
-
-  <main class="container">
-    <section class="card">
-      <div class="search search--center">
-        <div class="search__left search__left--center">
-          <label class="label label--center">Verify your email</label>
-          <div class="hint hint--center">Email: <span class="mono">{{ email }}</span></div>
-
-          {% if info %}
-            <div style="margin-top: 12px; color: #4caf7d; font-weight: 600; text-align:center;">
-              {{ info }}
-            </div>
-          {% endif %}
-
-          {% if error %}
-            <div style="margin-top: 12px; color: #d75a5a; font-weight: 600; text-align:center;">
-              {{ error }}
-            </div>
-          {% endif %}
-
-          <form method="POST" action="/verify_and_send" style="margin-top: 16px; width:100%; display:flex; flex-direction:column; align-items:center; gap:12px;">
-            <input type="hidden" name="email" value="{{ email }}">
-
-            <input
-              name="code"
-              class="input input--center"
-              type="text"
-              inputmode="numeric"
-              pattern="\d{6}"
-              minlength="6"
-              maxlength="6"
-              required
-              placeholder="6-digit code"
-            />
-
-            <button class="btn" type="submit">Verify and send photos</button>
-          </form>
-
-          <form method="POST" action="/request_code" style="margin-top: 12px;">
-            <input type="hidden" name="email" value="{{ email }}">
-            <button class="btn btn--secondary" type="submit">Resend code</button>
-          </form>
-
-          {% if not smtp_ok %}
-            <div style="margin-top: 12px; color: #d75a5a; font-weight: 600; text-align:center;">
-              Email sending is not configured on the server (SMTP).
-            </div>
-          {% endif %}
-        </div>
-      </div>
-    </section>
-  </main>
+  </div>
 </body>
 </html>

@@ -3,61 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Berat Marathon 2026 • Photo Delivery</title>
+  <title>Run Lens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header class="header">
-    <div class="container header__inner">
-      <div class="brand">
-        <div class="brand__badge">BM</div>
-        <div class="brand__text">
-          <div class="brand__title">Berat Marathon 2026</div>
-          <div class="brand__subtitle">Photo Delivery</div>
-        </div>
-      </div>
-    </div>
-  </header>
+  <div class="page">
+    <div class="page__inner">
 
-  <main class="container">
-    <section class="card">
-      <form class="search search--center" method="POST" action="/request_code" autocomplete="off">
-        <div class="search__left search__left--center">
-          <label class="label label--center" for="email">Get your photos by email</label>
-          <label class="label label--sub" for="email">Enter the email you registered with</label>
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Run Lens" class="logo" />
 
-          <div class="inputWrap inputWrap--center">
-            <input
-              id="email"
-              name="email"
-              class="input input--center"
-              type="email"
-              value=""
-              required
-              placeholder="name@example.com"
-              style="letter-spacing: 0px;"
-            />
-            <div class="hint hint--center">We will send a verification code to this email.</div>
-          </div>
+      <p class="slogan">Every stride captured. Your race, your photos.</p>
 
-          {% if error %}
-            <div style="margin-top: 12px; color: #d75a5a; font-weight: 600; text-align:center;">
-              {{ error }}
-            </div>
-          {% endif %}
+      <form class="form-card" method="POST" action="/request_code" autocomplete="off">
+
+        <div class="select-wrap">
+          <select id="event" name="event_id" class="select" required>
+            <option value="" disabled selected>Choose your race</option>
+            {% for event in events %}
+              <option value="{{ event.id }}" {% if selected_event == event.id %}selected{% endif %}>
+                {{ event.name }}
+              </option>
+            {% endfor %}
+          </select>
         </div>
 
-        <div class="search__right search__right--center">
-          <button class="btn" type="submit">Send verification code</button>
-        </div>
+        <input
+          id="email"
+          name="email"
+          class="input"
+          type="email"
+          required
+          placeholder="Your email address"
+          value="{{ email_value|default('', true) }}"
+        />
+
+        <button class="btn" type="submit">Get my photos</button>
+
+        <p class="hint">We'll send a verification code to confirm your identity.</p>
+
+        {% if error %}
+          <div class="msg msg--error">{{ error }}</div>
+        {% endif %}
 
         {% if not smtp_ok %}
-          <div style="margin-top: 12px; color: #d75a5a; font-weight: 600; text-align:center;">
-            Email sending is not configured on the server (SMTP).
-          </div>
+          <div class="msg msg--error">Email delivery is not configured on this server.</div>
         {% endif %}
+
       </form>
-    </section>
-  </main>
+
+    </div>
+  </div>
 </body>
 </html>

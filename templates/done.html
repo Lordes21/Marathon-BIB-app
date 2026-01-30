@@ -3,44 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Done • Berat Marathon 2026</title>
+  <title>Done &middot; Run Lens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header class="header">
-    <div class="container header__inner">
-      <div class="brand">
-        <div class="brand__badge">BM</div>
-        <div class="brand__text">
-          <div class="brand__title">Berat Marathon 2026</div>
-          <div class="brand__subtitle">Photo Delivery</div>
-        </div>
-      </div>
+  <div class="page">
+    <div class="page__inner">
+
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Run Lens" class="logo" />
+
+      <div class="divider"></div>
+
+      <div class="msg msg--neutral">{{ message }}</div>
+
+      {% if not smtp_ok %}
+        <div class="msg msg--error">Email delivery is not configured on this server.</div>
+      {% endif %}
+
+      <a href="/" class="btn btn--ghost">Back to home</a>
+
     </div>
-  </header>
-
-  <main class="container">
-    <section class="card">
-      <div class="search search--center">
-        <div class="search__left search__left--center">
-          <label class="label label--center">Status</label>
-
-          <div style="margin-top: 12px; font-weight: 600; text-align:center;">
-            {{ message }}
-          </div>
-
-          <div style="margin-top: 16px;">
-            <a class="btn btn--secondary" href="/">Back</a>
-          </div>
-
-          {% if not smtp_ok %}
-            <div style="margin-top: 12px; color: #d75a5a; font-weight: 600; text-align:center;">
-              Email sending is not configured on the server (SMTP).
-            </div>
-          {% endif %}
-        </div>
-      </div>
-    </section>
-  </main>
+  </div>
 </body>
 </html>

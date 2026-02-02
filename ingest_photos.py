@@ -19,6 +19,22 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
+def get_event_photo_folder(cur, event_id: int) -> str:
+    """Read the photo_folder for an event. Falls back to 'events/<id>/photos'."""
+    cur.execute(
+        "SELECT photo_folder FROM marathon.events WHERE id = %s",
+        (event_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"Event {event_id} not found in the database.")
+    folder = (row[0] or "").strip()
+    if not folder:
+        folder = f"events/{event_id}/photos"
+    return folder.rstrip("/")
+
+
 def ingest_photos(event_id: int, folder: str):
     folder_path = Path(folder)
     files = list(folder_path.rglob("*"))
@@ -31,6 +47,10 @@ def ingest_photos(event_id: int, folder: str):
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
 
+    # Get the S3 prefix for this event from the DB
+    s3_prefix = get_event_photo_folder(cur, event_id)
+    print(f"S3 prefix for event {event_id}: {s3_prefix}")
+
     exts = {".jpg", ".jpeg", ".png"}
 
     for img in folder_path.rglob("*"):
@@ -38,7 +58,7 @@ def ingest_photos(event_id: int, folder: str):
             continue
 
         file_hash = sha256_file(img)
-        key = f"events/{event_id}/photos/{file_hash}{img.suffix.lower()}"
+        key = f"{s3_prefix}/{file_hash}{img.suffix.lower()}"
 
         # Upload (idempotent enough for dev; can optimize later)
         s3.upload_file(str(img), S3_BUCKET, key)
@@ -58,4 +78,4 @@ def ingest_photos(event_id: int, folder: str):
 
 if __name__ == "__main__":
     # CHANGE THIS:
-    ingest_photos(event_id=1, folder=r"data\originals")   # folderi me foto
+    ingest_photos(event_id=1, folder=r"data/originals")

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS events (
   id           BIGSERIAL PRIMARY KEY,
   name         TEXT NOT NULL,
   event_date   DATE,
+  photo_folder TEXT NOT NULL DEFAULT '',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
